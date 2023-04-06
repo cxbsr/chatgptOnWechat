@@ -4,6 +4,7 @@ import json
 import logging
 import os
 from common.log import logger
+import pickle
 
 # 将所有可用的配置项写在字典里, 请使用小写字母
 available_setting = {
@@ -44,7 +45,8 @@ available_setting = {
     "top_p": 1,
     "frequency_penalty": 0,
     "presence_penalty": 0,
-    "request_timeout": 30,  # chatgpt请求超时时间
+    "request_timeout": 60, # chatgpt请求超时时间，openai接口默认设置为600，对于难问题一般需要较长时间
+    "timeout": 120,         # chatgpt重试超时时间，在这个时间内，将会自动重试
 
     # 语音设置
     "speech_recognition": False,  # 是否开启语音识别
@@ -76,18 +78,29 @@ available_setting = {
     # wechaty的配置
     "wechaty_puppet_service_token": "",  # wechaty的token
 
+    # wechatmp的配置
+    "wechatmp_token": "",  # 微信公众平台的Token
+    "wechatmp_port": 8080, # 微信公众平台的端口,需要端口转发到80或443
+
     # chatgpt指令自定义触发词
     "clear_memory_commands": ['#清除记忆'],  # 重置会话指令，必须以#开头
 
     # channel配置
-    "channel_type": "wx", # 通道类型，支持wx,wxy和terminal
+    "channel_type": "wx", # 通道类型，支持：{wx,wxy,terminal,wechatmp}
 
     "debug": False,  # 是否开启debug模式，开启后会打印更多日志
 
+    # 插件配置
+    "plugin_trigger_prefix": "$",  # 规范插件提供聊天相关指令的前缀，建议不要和管理员指令前缀"#"冲突
 }
 
 
 class Config(dict):
+    def __init__(self, d:dict={}):
+        super().__init__(d)
+        # user_datas: 用户数据，key为用户名，value为用户数据，也是dict
+        self.user_datas = {}
+
     def __getitem__(self, key):
         if key not in available_setting:
             raise Exception("key {} not in available_setting".format(key))
@@ -106,6 +119,30 @@ class Config(dict):
         except Exception as e:
             raise e
 
+    # Make sure to return a dictionary to ensure atomic
+    def get_user_data(self, user) -> dict:
+        if self.user_datas.get(user) is None:
+            self.user_datas[user] = {}
+        return self.user_datas[user]
+
+    def load_user_datas(self):
+        try:
+            with open('user_datas.pkl', 'rb') as f:
+                self.user_datas = pickle.load(f)
+                logger.info("[Config] User datas loaded.")
+        except FileNotFoundError as e:
+            logger.info("[Config] User datas file not found, ignore.")
+        except Exception as e:
+            logger.info("[Config] User datas error: {}".format(e))
+            self.user_datas = {}
+
+    def save_user_datas(self):
+        try:
+            with open('user_datas.pkl', 'wb') as f:
+                pickle.dump(self.user_datas, f)
+                logger.info("[Config] User datas saved.")
+        except Exception as e:
+            logger.info("[Config] User datas error: {}".format(e))
 
 config = Config()
 
@@ -146,6 +183,7 @@ def load_config():
 
     logger.info("[INIT] load config: {}".format(config))
 
+    config.load_user_datas()
 
 def get_root():
     return os.path.dirname(os.path.abspath(__file__))
